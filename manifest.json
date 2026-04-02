@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Live Transcribe & AI Answer",
-  "version": "1.0.0",
-  "description": "Real-time audio transcription with AI-powered question answering",
+  "version": "2.0.0",
+  "description": "Real-time system audio transcription with AI-powered question answering",
   "permissions": [
     "storage",
     "sidePanel",

@@ -40,7 +40,7 @@ body {
   white-space: nowrap;
 }
 
-#api-key {
+.settings-row input[type="password"] {
   flex: 1;
   padding: 5px 8px;
   border: 1px solid #0f3460;
@@ -50,7 +50,7 @@ body {
   font-size: 12px;
 }
 
-#save-key {
+#save-keys {
   padding: 5px 12px;
   background: #0f3460;
   color: #e0e0e0;
@@ -60,7 +60,7 @@ body {
   font-size: 12px;
 }
 
-#save-key:hover {
+#save-keys:hover {
   background: #1a5276;
 }
 
@@ -71,30 +71,6 @@ select {
   border: 1px solid #0f3460;
   border-radius: 4px;
   font-size: 12px;
-}
-
-.source-toggle {
-  display: flex;
-  gap: 2px;
-  background: #0d1b2a;
-  border-radius: 4px;
-  padding: 2px;
-}
-
-.src-btn {
-  padding: 4px 12px;
-  border: none;
-  background: transparent;
-  color: #8899aa;
-  cursor: pointer;
-  border-radius: 3px;
-  font-size: 12px;
-  transition: all 0.2s;
-}
-
-.src-btn.active {
-  background: #e94560;
-  color: white;
 }
 
 #controls {
@@ -143,6 +119,19 @@ select {
 
 #status.listening {
   color: #e94560;
+}
+
+#status.error {
+  color: #ff6b6b;
+}
+
+#info-banner {
+  padding: 8px 12px;
+  background: #0f3460;
+  color: #a0c0e0;
+  font-size: 12px;
+  line-height: 1.5;
+  border-bottom: 1px solid #1a5276;
 }
 
 #transcript-container {
@@ -274,7 +263,6 @@ select {
   background: #c73e54;
 }
 
-/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
 }

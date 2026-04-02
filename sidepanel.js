@@ -1,43 +1,41 @@
 // ── State ──
-let recognition = null;
 let isListening = false;
+let mediaStream = null;
+let mediaRecorder = null;
+let dgSocket = null;
 let fullTranscript = [];  // Array of {time, text, isQuestion}
-let pendingText = '';
-let audioSource = 'mic';  // 'mic' or 'tab'
-let tabStream = null;
 
 // ── DOM ──
-const toggleBtn    = document.getElementById('toggle-btn');
-const statusEl     = document.getElementById('status');
-const transcriptEl = document.getElementById('transcript');
-const interimEl    = document.getElementById('interim');
-const answersEl    = document.getElementById('answers');
-const apiKeyInput  = document.getElementById('api-key');
-const saveKeyBtn   = document.getElementById('save-key');
-const autoAnswerCb = document.getElementById('auto-answer');
-const langSelect   = document.getElementById('language');
-const manualInput  = document.getElementById('manual-question');
-const askBtn       = document.getElementById('ask-btn');
-const srcMicBtn    = document.getElementById('src-mic');
-const srcTabBtn    = document.getElementById('src-tab');
+const toggleBtn     = document.getElementById('toggle-btn');
+const statusEl      = document.getElementById('status');
+const transcriptEl  = document.getElementById('transcript');
+const interimEl     = document.getElementById('interim');
+const answersEl     = document.getElementById('answers');
+const deepgramInput = document.getElementById('deepgram-key');
+const claudeInput   = document.getElementById('claude-key');
+const saveKeysBtn   = document.getElementById('save-keys');
+const autoAnswerCb  = document.getElementById('auto-answer');
+const langSelect    = document.getElementById('language');
+const manualInput   = document.getElementById('manual-question');
+const askBtn        = document.getElementById('ask-btn');
+const infoBanner    = document.getElementById('info-banner');
 
 // ── Init ──
-chrome.storage.local.get(['apiKey', 'autoAnswer', 'language', 'audioSource'], (data) => {
-  if (data.apiKey) apiKeyInput.value = data.apiKey;
+chrome.storage.local.get(['deepgramKey', 'claudeKey', 'autoAnswer', 'language'], (data) => {
+  if (data.deepgramKey) deepgramInput.value = data.deepgramKey;
+  if (data.claudeKey) claudeInput.value = data.claudeKey;
   if (data.autoAnswer !== undefined) autoAnswerCb.checked = data.autoAnswer;
   if (data.language) langSelect.value = data.language;
-  if (data.audioSource) {
-    audioSource = data.audioSource;
-    srcMicBtn.classList.toggle('active', audioSource === 'mic');
-    srcTabBtn.classList.toggle('active', audioSource === 'tab');
-  }
 });
 
-// ── Settings handlers ──
-saveKeyBtn.addEventListener('click', () => {
-  chrome.storage.local.set({ apiKey: apiKeyInput.value.trim() });
-  saveKeyBtn.textContent = 'Saved!';
-  setTimeout(() => saveKeyBtn.textContent = 'Save', 1500);
+// ── Settings ──
+saveKeysBtn.addEventListener('click', () => {
+  chrome.storage.local.set({
+    deepgramKey: deepgramInput.value.trim(),
+    claudeKey: claudeInput.value.trim()
+  });
+  saveKeysBtn.textContent = 'Saved!';
+  setTimeout(() => saveKeysBtn.textContent = 'Save', 1500);
 });
 
 autoAnswerCb.addEventListener('change', () => {
@@ -46,23 +44,6 @@ autoAnswerCb.addEventListener('change', () => {
 
 langSelect.addEventListener('change', () => {
   chrome.storage.local.set({ language: langSelect.value });
-  if (isListening) { stopListening(); startListening(); }
-});
-
-srcMicBtn.addEventListener('click', () => {
-  audioSource = 'mic';
-  srcMicBtn.classList.add('active');
-  srcTabBtn.classList.remove('active');
-  chrome.storage.local.set({ audioSource: 'mic' });
-  if (isListening) { stopListening(); startListening(); }
-});
-
-srcTabBtn.addEventListener('click', () => {
-  audioSource = 'tab';
-  srcTabBtn.classList.add('active');
-  srcMicBtn.classList.remove('active');
-  chrome.storage.local.set({ audioSource: 'tab' });
-  if (isListening) { stopListening(); startListening(); }
 });
 
 // ── Toggle ──
@@ -81,201 +62,175 @@ function sendManualQuestion() {
   const q = manualInput.value.trim();
   if (!q) return;
   manualInput.value = '';
-  askClaude(q, true);
+  askClaude(q);
 }
 
-// ── Start listening ──
+// ── Start: capture system audio + connect Deepgram ──
 async function startListening() {
-  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-    statusEl.textContent = 'Speech Recognition not supported in this browser';
+  const dgKey = deepgramInput.value.trim();
+  if (!dgKey) {
+    setStatus('Enter your Deepgram API key first', 'error');
     return;
   }
 
-  // Request microphone permission first — side panel won't get it otherwise
-  statusEl.textContent = 'Requesting microphone access...';
+  // Show instructions
+  infoBanner.style.display = 'block';
+  setStatus('Select audio source...', '');
+
   try {
-    const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    // Stop the stream immediately — we just needed the permission grant
-    micStream.getTracks().forEach(t => t.stop());
-  } catch (err) {
-    statusEl.textContent = 'Microphone access denied — check browser permissions';
-    console.error('Mic permission error:', err);
-    return;
-  }
+    // Capture system/tab audio via screen share picker
+    mediaStream = await navigator.mediaDevices.getDisplayMedia({
+      audio: true,
+      video: { width: 1, height: 1 }  // minimal video (required by API)
+    });
 
-  // If tab mode, capture tab audio first
-  if (audioSource === 'tab') {
-    try {
-      // Request tab capture via background
-      const streamId = await new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({ action: 'captureTab' }, (response) => {
-          if (response && response.streamId) resolve(response.streamId);
-          else reject(new Error(response?.error || 'Tab capture failed'));
-        });
+    // Stop the video track — we only need audio
+    mediaStream.getVideoTracks().forEach(t => t.stop());
+
+    // Check we actually got an audio track
+    const audioTracks = mediaStream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      setStatus('No audio captured — make sure "Share audio" was checked!', 'error');
+      infoBanner.style.display = 'block';
+      return;
+    }
+
+    infoBanner.style.display = 'none';
+    setStatus('Connecting to Deepgram...', '');
+
+    // Connect to Deepgram WebSocket
+    const lang = langSelect.value;
+    const dgUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${lang}&smart_format=true&interim_results=true&utterance_end_ms=1500&vad_events=true&endpointing=300`;
+
+    dgSocket = new WebSocket(dgUrl, ['token', dgKey]);
+
+    dgSocket.onopen = () => {
+      isListening = true;
+      toggleBtn.textContent = 'Stop';
+      toggleBtn.className = 'stop';
+      setStatus('Listening to system audio...', 'listening');
+
+      // Start recording and streaming audio to Deepgram
+      mediaRecorder = new MediaRecorder(mediaStream, {
+        mimeType: 'audio/webm;codecs=opus'
       });
 
-      tabStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          mandatory: {
-            chromeMediaSource: 'tab',
-            chromeMediaSourceId: streamId
-          }
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0 && dgSocket && dgSocket.readyState === WebSocket.OPEN) {
+          dgSocket.send(e.data);
         }
-      });
+      };
 
-      // We need to play the tab audio back so the user still hears it
-      const audioCtx = new AudioContext();
-      const source = audioCtx.createMediaStreamSource(tabStream);
-      source.connect(audioCtx.destination);
+      mediaRecorder.start(250);  // Send chunks every 250ms for real-time feel
+    };
 
-    } catch (err) {
-      console.error('Tab capture error:', err);
-      statusEl.textContent = 'Tab capture failed - using mic';
-      audioSource = 'mic';
-      srcMicBtn.classList.add('active');
-      srcTabBtn.classList.remove('active');
-    }
-  }
+    dgSocket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
 
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  recognition = new SpeechRecognition();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.lang = langSelect.value;
-  recognition.maxAlternatives = 1;
+      if (data.type === 'Results') {
+        const alt = data.channel?.alternatives?.[0];
+        if (!alt) return;
 
-  recognition.onstart = () => {
-    isListening = true;
-    toggleBtn.textContent = 'Stop';
-    toggleBtn.className = 'stop';
-    statusEl.textContent = 'Listening...';
-    statusEl.className = 'listening';
-  };
+        const text = alt.transcript?.trim();
+        if (!text) return;
 
-  recognition.onresult = (event) => {
-    let interim = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const result = event.results[i];
-      const text = result[0].transcript.trim();
+        if (data.is_final) {
+          // Final result — add to transcript
+          const isQuestion = detectQuestion(text);
+          const entry = {
+            time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            text,
+            isQuestion
+          };
+          fullTranscript.push(entry);
+          renderTranscriptLine(entry);
+          interimEl.textContent = '';
 
-      if (result.isFinal) {
-        processFinalText(text);
-      } else {
-        interim += text;
+          // Auto-answer questions
+          if (isQuestion && autoAnswerCb.checked) {
+            askClaude(text);
+          }
+        } else {
+          // Interim result — show as preview
+          interimEl.textContent = `...${text}`;
+        }
       }
-    }
-    interimEl.textContent = interim ? `...${interim}` : '';
-  };
+    };
 
-  recognition.onerror = (event) => {
-    console.error('Speech error:', event.error);
-    if (event.error === 'not-allowed') {
-      statusEl.textContent = 'Microphone access denied';
+    dgSocket.onerror = (err) => {
+      console.error('Deepgram WebSocket error:', err);
+      setStatus('Deepgram connection error — check API key', 'error');
+    };
+
+    dgSocket.onclose = (event) => {
+      console.log('Deepgram closed:', event.code, event.reason);
+      if (isListening) {
+        setStatus('Deepgram disconnected — click Start to reconnect', 'error');
+        stopListening();
+      }
+    };
+
+    // Handle stream ending (user stops sharing)
+    audioTracks[0].onended = () => {
+      setStatus('Audio sharing stopped', '');
       stopListening();
-    } else if (event.error === 'no-speech') {
-      // Auto-restart on silence
-      statusEl.textContent = 'No speech detected...';
+    };
+
+  } catch (err) {
+    console.error('Capture error:', err);
+    if (err.name === 'NotAllowedError') {
+      setStatus('Audio capture cancelled', '');
     } else {
-      statusEl.textContent = `Error: ${event.error}`;
+      setStatus('Error: ' + err.message, 'error');
     }
-  };
-
-  recognition.onend = () => {
-    // Auto-restart if still supposed to be listening
-    if (isListening) {
-      try { recognition.start(); } catch(e) {}
-    }
-  };
-
-  try {
-    recognition.start();
-    statusEl.textContent = 'Starting...';
-  } catch (e) {
-    statusEl.textContent = 'Failed to start: ' + e.message;
-    console.error('Recognition start error:', e);
-    isListening = false;
+    infoBanner.style.display = 'none';
   }
 }
 
 function stopListening() {
   isListening = false;
-  if (recognition) {
-    recognition.onend = null;
-    recognition.stop();
-    recognition = null;
+
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
   }
-  if (tabStream) {
-    tabStream.getTracks().forEach(t => t.stop());
-    tabStream = null;
+  mediaRecorder = null;
+
+  if (dgSocket) {
+    // Send close message to Deepgram
+    if (dgSocket.readyState === WebSocket.OPEN) {
+      dgSocket.send(JSON.stringify({ type: 'CloseStream' }));
+    }
+    dgSocket.close();
+    dgSocket = null;
   }
+
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+  }
+
   toggleBtn.textContent = 'Start Transcribing';
   toggleBtn.className = 'start';
-  statusEl.textContent = 'Stopped';
-  statusEl.className = '';
   interimEl.textContent = '';
+  infoBanner.style.display = 'none';
+  if (statusEl.className !== 'error') {
+    setStatus('Stopped', '');
+  }
 }
 
-// ── Process final transcript text ──
-function processFinalText(text) {
-  if (!text) return;
-
-  // Accumulate into sentences
-  pendingText += (pendingText ? ' ' : '') + text;
-
-  // Check if we have a complete sentence
-  const sentenceEnd = /[.!?]$/;
-  if (sentenceEnd.test(pendingText) || pendingText.length > 200) {
-    const sentence = pendingText.trim();
-    pendingText = '';
-
-    const isQuestion = detectQuestion(sentence);
-    const entry = {
-      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      text: sentence,
-      isQuestion
-    };
-    fullTranscript.push(entry);
-    renderTranscriptLine(entry);
-
-    // Auto-answer questions
-    if (isQuestion && autoAnswerCb.checked) {
-      askClaude(sentence, false);
-    }
-  } else {
-    // Still accumulating - show as a line anyway after a pause
-    clearTimeout(window._flushTimer);
-    window._flushTimer = setTimeout(() => {
-      if (pendingText.trim()) {
-        const sentence = pendingText.trim();
-        pendingText = '';
-        const isQuestion = detectQuestion(sentence);
-        const entry = {
-          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          text: sentence,
-          isQuestion
-        };
-        fullTranscript.push(entry);
-        renderTranscriptLine(entry);
-        if (isQuestion && autoAnswerCb.checked) {
-          askClaude(sentence, false);
-        }
-      }
-    }, 3000);
-  }
+function setStatus(text, className) {
+  statusEl.textContent = text;
+  statusEl.className = className || '';
 }
 
 // ── Question detection ──
 function detectQuestion(text) {
   const lower = text.toLowerCase().trim();
-
-  // Ends with question mark
   if (lower.endsWith('?')) return true;
 
-  // Starts with question words
   const questionStarts = /^(what|why|how|when|where|who|which|can|could|would|should|is|are|do|does|did|will|have|has|tell me|explain|define|describe)\b/i;
   if (questionStarts.test(lower)) return true;
 
-  // Contains question phrases
   const questionPhrases = /\b(what does|what is|what are|how do|how does|how can|what's|who's|where's|why is|why do|can you|could you|tell me about|what do you mean|what does .+ mean)\b/i;
   if (questionPhrases.test(lower)) return true;
 
@@ -292,17 +247,17 @@ function renderTranscriptLine(entry) {
 }
 
 // ── Ask Claude ──
-async function askClaude(question, isManual) {
-  const apiKey = apiKeyInput.value.trim();
+async function askClaude(question) {
+  const apiKey = claudeInput.value.trim();
   if (!apiKey) {
-    addAnswer(question, 'Please enter your Claude API key first.');
+    addAnswer(question, 'Enter your Claude API key to get AI answers.');
     return;
   }
 
   const cardId = addAnswer(question, 'Thinking...', true);
 
   // Build context from recent transcript
-  const recentLines = fullTranscript.slice(-30).map(e => `[${e.time}] ${e.text}`).join('\n');
+  const recentLines = fullTranscript.slice(-40).map(e => `[${e.time}] ${e.text}`).join('\n');
 
   const systemPrompt = `You are a helpful AI assistant listening to a live conversation/audio.
 You have access to the recent transcript below. Answer questions concisely and clearly.
@@ -310,9 +265,7 @@ If the question is about something said in the conversation, reference the relev
 Keep answers brief (2-4 sentences) unless more detail is needed.
 If asked "what does X mean", give a clear definition.`;
 
-  const userMessage = isManual
-    ? `Recent transcript:\n${recentLines}\n\nUser question: ${question}`
-    : `Recent transcript:\n${recentLines}\n\nA question was just asked in the conversation: "${question}"\n\nProvide a helpful answer.`;
+  const userMessage = `Recent transcript:\n${recentLines}\n\nQuestion: "${question}"\n\nProvide a helpful answer.`;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -368,7 +321,6 @@ function updateAnswer(id, text) {
 }
 
 function formatAnswer(text) {
-  // Basic markdown-like formatting
   return escapeHtml(text)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\n/g, '<br>');

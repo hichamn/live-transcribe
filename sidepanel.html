@@ -10,8 +10,11 @@
   <!-- Settings bar -->
   <div id="settings-bar">
     <div class="settings-row">
-      <input type="password" id="api-key" placeholder="Claude API Key (sk-ant-...)" />
-      <button id="save-key" title="Save API Key">Save</button>
+      <input type="password" id="deepgram-key" placeholder="Deepgram API Key (free at deepgram.com)" />
+      <button id="save-keys" title="Save Keys">Save</button>
+    </div>
+    <div class="settings-row">
+      <input type="password" id="claude-key" placeholder="Claude API Key (sk-ant-...)" />
     </div>
     <div class="settings-row">
       <label>
@@ -21,20 +24,14 @@
       <label>
         Language:
         <select id="language">
-          <option value="en-US">English</option>
-          <option value="fr-FR">French</option>
-          <option value="es-ES">Spanish</option>
-          <option value="ar-SA">Arabic</option>
-          <option value="de-DE">German</option>
+          <option value="en">English</option>
+          <option value="fr">French</option>
+          <option value="es">Spanish</option>
+          <option value="ar">Arabic</option>
+          <option value="de">German</option>
+          <option value="multi">Multi (auto-detect)</option>
         </select>
       </label>
-    </div>
-    <div class="settings-row">
-      <label>Source:</label>
-      <div class="source-toggle">
-        <button id="src-mic" class="src-btn active" title="Microphone (picks up speakers)">Mic</button>
-        <button id="src-tab" class="src-btn" title="Tab Audio (direct capture)">Tab</button>
-      </div>
     </div>
   </div>
 
@@ -42,6 +39,12 @@
   <div id="controls">
     <button id="toggle-btn" class="start">Start Transcribing</button>
     <span id="status">Ready</span>
+  </div>
+
+  <!-- Info banner -->
+  <div id="info-banner" style="display:none">
+    When the picker appears, select a <b>Chrome Tab</b> or <b>Entire Screen</b>.<br>
+    Make sure <b>"Share audio"</b> is checked at the bottom!
   </div>
 
   <!-- Transcript -->
