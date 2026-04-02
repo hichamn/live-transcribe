@@ -1,6 +1,9 @@
 // ── State ──
 let isListening = false;
 let mediaStream = null;
+let micStream = null;
+let mixedStream = null;
+let audioCtx = null;
 let mediaRecorder = null;
 let dgSocket = null;
 let fullTranscript = [];  // Array of {time, text, isQuestion}
@@ -88,14 +91,38 @@ async function startListening() {
     mediaStream.getVideoTracks().forEach(t => t.stop());
 
     // Check we actually got an audio track
-    const audioTracks = mediaStream.getAudioTracks();
-    if (audioTracks.length === 0) {
+    const systemAudioTracks = mediaStream.getAudioTracks();
+    if (systemAudioTracks.length === 0) {
       setStatus('No audio captured — make sure "Share audio" was checked!', 'error');
       infoBanner.style.display = 'block';
       return;
     }
 
     infoBanner.style.display = 'none';
+    setStatus('Requesting microphone...', '');
+
+    // Also capture mic so the user can speak/ask questions
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (micErr) {
+      console.warn('Mic not available, using system audio only:', micErr);
+      micStream = null;
+    }
+
+    // Mix system audio + mic into one stream
+    audioCtx = new AudioContext();
+    const dest = audioCtx.createMediaStreamDestination();
+
+    const systemSource = audioCtx.createMediaStreamSource(mediaStream);
+    systemSource.connect(dest);
+
+    if (micStream) {
+      const micSource = audioCtx.createMediaStreamSource(micStream);
+      micSource.connect(dest);
+    }
+
+    mixedStream = dest.stream;
+
     setStatus('Connecting to Deepgram...', '');
 
     // Connect to Deepgram WebSocket
@@ -108,10 +135,10 @@ async function startListening() {
       isListening = true;
       toggleBtn.textContent = 'Stop';
       toggleBtn.className = 'stop';
-      setStatus('Listening to system audio...', 'listening');
+      setStatus(micStream ? 'Listening (speaker + mic)...' : 'Listening (speaker only)...', 'listening');
 
-      // Start recording and streaming audio to Deepgram
-      mediaRecorder = new MediaRecorder(mediaStream, {
+      // Start recording the mixed stream and streaming to Deepgram
+      mediaRecorder = new MediaRecorder(mixedStream, {
         mimeType: 'audio/webm;codecs=opus'
       });
 
@@ -171,7 +198,7 @@ async function startListening() {
     };
 
     // Handle stream ending (user stops sharing)
-    audioTracks[0].onended = () => {
+    systemAudioTracks[0].onended = () => {
       setStatus('Audio sharing stopped', '');
       stopListening();
     };
@@ -208,6 +235,18 @@ function stopListening() {
     mediaStream.getTracks().forEach(t => t.stop());
     mediaStream = null;
   }
+
+  if (micStream) {
+    micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
+
+  if (audioCtx) {
+    audioCtx.close();
+    audioCtx = null;
+  }
+
+  mixedStream = null;
 
   toggleBtn.textContent = 'Start Transcribing';
   toggleBtn.className = 'start';
