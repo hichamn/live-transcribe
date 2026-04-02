@@ -87,7 +87,19 @@ function sendManualQuestion() {
 // ── Start listening ──
 async function startListening() {
   if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-    statusEl.textContent = 'Speech Recognition not supported';
+    statusEl.textContent = 'Speech Recognition not supported in this browser';
+    return;
+  }
+
+  // Request microphone permission first — side panel won't get it otherwise
+  statusEl.textContent = 'Requesting microphone access...';
+  try {
+    const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Stop the stream immediately — we just needed the permission grant
+    micStream.getTracks().forEach(t => t.stop());
+  } catch (err) {
+    statusEl.textContent = 'Microphone access denied — check browser permissions';
+    console.error('Mic permission error:', err);
     return;
   }
 
@@ -177,8 +189,11 @@ async function startListening() {
 
   try {
     recognition.start();
+    statusEl.textContent = 'Starting...';
   } catch (e) {
     statusEl.textContent = 'Failed to start: ' + e.message;
+    console.error('Recognition start error:', e);
+    isListening = false;
   }
 }
 
