@@ -1,19 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Live Transcribe & AI Answer",
-  "version": "2.0.0",
-  "description": "Real-time system audio transcription with AI-powered question answering",
+  "version": "3.0.0",
+  "description": "Real-time audio transcription with AI-powered question answering",
   "permissions": [
-    "storage",
-    "sidePanel",
-    "activeTab",
-    "tabCapture"
+    "storage"
   ],
-  "side_panel": {
-    "default_path": "sidepanel.html"
-  },
   "action": {
     "default_title": "Live Transcribe",
+    "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Transcribe</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <!-- Settings -->
+  <div id="settings-bar">
+    <div class="settings-row">
+      <input type="password" id="claude-key" placeholder="Claude API Key (sk-ant-...)" />
+      <button id="save-key">Save</button>
+    </div>
+    <div class="settings-row">
+      <label>
+        <input type="checkbox" id="auto-answer" checked />
+        Auto-answer questions
+      </label>
+      <label>
+        Language:
+        <select id="language">
+          <option value="en-US">English</option>
+          <option value="fr-FR">French</option>
+          <option value="es-ES">Spanish</option>
+          <option value="ar-SA">Arabic</option>
+          <option value="de-DE">German</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div id="controls">
+    <button id="toggle-btn" class="start">Start Transcribing</button>
+    <span id="status">Ready — uses your mic to hear speakers + your voice</span>
+  </div>
+
+  <!-- Transcript -->
+  <div id="transcript-container">
+    <h3>Live Transcript</h3>
+    <div id="transcript"></div>
+    <div id="interim" class="interim"></div>
+  </div>
+
+  <!-- AI Answers -->
+  <div id="answers-container">
+    <h3>AI Answers</h3>
+    <div id="answers"></div>
+  </div>
+
+  <!-- Manual question -->
+  <div id="ask-bar">
+    <input type="text" id="manual-question" placeholder="Ask about the conversation..." />
+    <button id="ask-btn">Ask</button>
+  </div>
+
+  <script src="transcribe.js"></script>
+</body>
+</html>
