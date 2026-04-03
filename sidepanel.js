@@ -113,19 +113,19 @@ async function startListening() {
       micStream = null;
     }
 
-    // Mix system audio + mic into one stream
-    audioCtx = new AudioContext();
-    const dest = audioCtx.createMediaStreamDestination();
-
-    const systemSource = audioCtx.createMediaStreamSource(mediaStream);
-    systemSource.connect(dest);
-
+    // Mix system audio + mic into one stream (or use system audio alone)
     if (micStream) {
+      audioCtx = new AudioContext();
+      const dest = audioCtx.createMediaStreamDestination();
+      const systemSource = audioCtx.createMediaStreamSource(mediaStream);
+      systemSource.connect(dest);
       const micSource = audioCtx.createMediaStreamSource(micStream);
       micSource.connect(dest);
+      mixedStream = dest.stream;
+    } else {
+      // No mic — use system audio directly (no AudioContext mixing needed)
+      mixedStream = mediaStream;
     }
-
-    mixedStream = dest.stream;
 
     setStatus('Connecting to Deepgram...', '');
 
@@ -152,11 +152,23 @@ async function startListening() {
         }
       };
 
+      mediaRecorder.onerror = (e) => {
+        console.error('MediaRecorder error:', e);
+        setStatus('Recording error: ' + e.error?.name, 'error');
+      };
+
       mediaRecorder.start(250);  // Send chunks every 250ms for real-time feel
+      console.log('MediaRecorder started, track states:', mixedStream.getAudioTracks().map(t => `${t.label}: ${t.readyState}, enabled=${t.enabled}`));
     };
 
     dgSocket.onmessage = (event) => {
       const data = JSON.parse(event.data);
+      console.log('DG msg:', data.type, data);
+
+      // Show connection confirmed on first message
+      if (data.type === 'Metadata') {
+        setStatus(micStream ? 'Connected (speaker + mic)' : 'Connected (speaker only)', 'listening');
+      }
 
       if (data.type === 'Results') {
         const alt = data.channel?.alternatives?.[0];
