@@ -126,12 +126,12 @@ select {
 }
 
 #info-banner {
-  padding: 8px 12px;
-  background: #0f3460;
-  color: #a0c0e0;
-  font-size: 12px;
-  line-height: 1.5;
-  border-bottom: 1px solid #1a5276;
+  padding: 10px 12px;
+  background: #e94560;
+  color: white;
+  font-size: 13px;
+  line-height: 1.8;
+  border-bottom: 1px solid #c73e54;
 }
 
 #transcript-container {

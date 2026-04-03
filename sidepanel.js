@@ -82,9 +82,13 @@ async function startListening() {
 
   try {
     // Capture system/tab audio via screen share picker
+    // systemAudio: 'include' tells Chrome to pre-check "Share system audio"
     mediaStream = await navigator.mediaDevices.getDisplayMedia({
       audio: true,
-      video: { width: 1, height: 1 }  // minimal video (required by API)
+      video: { width: 1, height: 1 },
+      systemAudio: 'include',
+      selfBrowserSurface: 'exclude',
+      monitorTypeSurfaces: 'include'
     });
 
     // Stop the video track — we only need audio
